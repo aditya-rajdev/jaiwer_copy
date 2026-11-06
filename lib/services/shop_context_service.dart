@@ -1,7 +1,5 @@
-import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 class ShopModel {
   const ShopModel({
@@ -22,7 +20,7 @@ class ShopModel {
   final String gstin;
   final bool isPrimary;
 
-  String get displayName => '$name ($branch)';
+  String get displayName => name;
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -35,13 +33,13 @@ class ShopModel {
       };
 
   factory ShopModel.fromJson(Map<String, dynamic> json) => ShopModel(
-        id: (json['id'] ?? '').toString(),
-        name: (json['name'] ?? 'Raj Jewellery').toString(),
+        id: (json['id'] ?? 'shop_primary').toString(),
+        name: (json['name'] ?? 'JAIWER Jewellery Shop').toString(),
         branch: (json['branch'] ?? 'Main Branch').toString(),
         address: (json['address'] ?? 'Patna, Bihar').toString(),
         phone: (json['phone'] ?? '+919876543210').toString(),
         gstin: (json['gstin'] ?? '10AAAAA0000A1Z5').toString(),
-        isPrimary: json['isPrimary'] == true,
+        isPrimary: true,
       );
 }
 
@@ -51,90 +49,61 @@ class ShopContextService extends ChangeNotifier {
 
   static const FlutterSecureStorage _storage = FlutterSecureStorage();
 
-  List<ShopModel> _shops = [];
   ShopModel? _currentShop;
 
-  List<ShopModel> get shops => List.unmodifiable(_shops);
-  ShopModel? get currentShop => _currentShop;
-  String get selectedShopId => _currentShop?.id ?? 'shop_patna';
+  // Single-Shop Enforcement: Only one shop is returned per account
+  List<ShopModel> get shops => _currentShop != null ? [_currentShop!] : [_defaultSingleShop()];
+  ShopModel? get currentShop => _currentShop ?? _defaultSingleShop();
+  String get selectedShopId => _currentShop?.id ?? 'shop_primary';
+  bool get isSingleShopMode => true;
 
   Future<void> initialize() async {
-    final prefs = await SharedPreferences.getInstance();
-    final jsonStr = prefs.getString('user_multi_shops_list');
+    final storedName = await _storage.read(key: 'shop_name');
+    final storedAddress = await _storage.read(key: 'shop_address');
 
-    if (jsonStr != null && jsonStr.isNotEmpty) {
-      try {
-        final List decoded = jsonDecode(jsonStr);
-        _shops = decoded.map((s) => ShopModel.fromJson(Map<String, dynamic>.from(s))).toList();
-      } catch (_) {
-        _shops = _defaultShops();
-      }
-    } else {
-      _shops = _defaultShops();
-      await _saveShopsLocally();
-    }
+    final name = (storedName != null && storedName.trim().isNotEmpty)
+        ? storedName.trim()
+        : 'JAIWER Jewellery Shop';
 
-    final selectedId = await _storage.read(key: 'selected_shop_id');
-    if (selectedId != null && selectedId.isNotEmpty) {
-      final match = _shops.firstWhere(
-        (s) => s.id == selectedId,
-        orElse: () => _shops.first,
-      );
-      _currentShop = match;
-    } else {
-      _currentShop = _shops.first;
-      await _storage.write(key: 'selected_shop_id', value: _currentShop!.id);
-      await _storage.write(key: 'shop_name', value: _currentShop!.displayName);
-    }
+    final address = (storedAddress != null && storedAddress.trim().isNotEmpty)
+        ? storedAddress.trim()
+        : 'Patna, Bihar';
 
+    _currentShop = ShopModel(
+      id: 'shop_primary',
+      name: name,
+      branch: 'Main Branch',
+      address: address,
+      phone: '+91 98765 43210',
+      gstin: '10AAAAA0000A1Z5',
+      isPrimary: true,
+    );
+
+    await _storage.write(key: 'selected_shop_id', value: 'shop_primary');
     notifyListeners();
   }
 
-  List<ShopModel> _defaultShops() {
-    return const [
-      ShopModel(
-        id: 'shop_patna',
-        name: 'Raj Jewellery',
-        branch: 'Patna Main Branch',
-        address: 'Boring Road, Patna, Bihar - 800001',
-        phone: '+91 98765 43210',
-        gstin: '10AAAAA0000A1Z5',
-        isPrimary: true,
-      ),
-      ShopModel(
-        id: 'shop_gaya',
-        name: 'Raj Jewellery',
-        branch: 'Gaya Branch',
-        address: 'GB Road, Gaya, Bihar - 823001',
-        phone: '+91 91234 56789',
-        gstin: '10AAAAA0000A1Z6',
-        isPrimary: false,
-      ),
-    ];
-  }
-
-  Future<void> _saveShopsLocally() async {
-    final prefs = await SharedPreferences.getInstance();
-    final jsonStr = jsonEncode(_shops.map((s) => s.toJson()).toList());
-    await prefs.setString('user_multi_shops_list', jsonStr);
+  ShopModel _defaultSingleShop() {
+    return const ShopModel(
+      id: 'shop_primary',
+      name: 'JAIWER Jewellery Shop',
+      branch: 'Main Branch',
+      address: 'Patna, Bihar',
+      phone: '+91 98765 43210',
+      gstin: '10AAAAA0000A1Z5',
+      isPrimary: true,
+    );
   }
 
   Future<bool> switchShop(String shopId) async {
-    final match = _shops.firstWhere((s) => s.id == shopId, orElse: () => _shops.first);
-    _currentShop = match;
-
-    await _storage.write(key: 'selected_shop_id', value: match.id);
-    await _storage.write(key: 'shop_name', value: match.displayName);
-    await _storage.write(key: 'shop_address', value: match.address);
-
-    notifyListeners();
-    return true;
+    // Multi-shop switching is disabled in Single-Shop mode
+    debugPrint('[ShopContextService] Multi-shop switching is temporarily disabled (Single-Shop mode).');
+    return false;
   }
 
   Future<bool> addNewShop(ShopModel shop) async {
-    _shops.add(shop);
-    await _saveShopsLocally();
-    await switchShop(shop.id);
-    return true;
+    // Multi-shop creation is disabled in Single-Shop mode
+    debugPrint('[ShopContextService] Adding multiple shops is temporarily disabled (Single-Shop mode).');
+    return false;
   }
 }
